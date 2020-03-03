@@ -7,8 +7,8 @@ import csv
 import time
 import random
 
-CRAWLPAGELIMIT = 100 # crawl from page1 to CRAWLPAGELIMIT
-CRAWLTIMESPAN = 1 # number of seconds between two request
+CRAWLPAGELIMIT = 51 # [1, CRAWLPAGELIMIT)
+CRAWLTIMESPAN = 1 # number of seconds between two pages
 
 class ProxyIP:
     """
@@ -27,19 +27,24 @@ class Website:
     """
     This class saves the structure of one website
     """
-    def __init__(self, url, ipTag, portTag, locationTag, respondTimeTag):
+    def __init__(self, url, ipTag, portTag, locationTag, respondTimeTag, name, encoding):
         self.url = url
         self.ipTag = ipTag
         self.portTag = portTag
         self.locationTag = locationTag
         self.respondTimeTag = respondTimeTag
+        self.name = name
+        self.encoding = encoding
         
 class Crawler:
-    def getPage(self, url, userAgent):
+    def __init__(self):
+        self.crawlCount = 0
+    
+    def getPage(self, url, userAgent, encoding):
         request = Request(url)
         request.add_header('User-agent', userAgent)
         html = urlopen(request)
-        bs = BeautifulSoup(html.read(),'html.parser')
+        bs = BeautifulSoup(html.read().decode(encoding),'html.parser')
         return bs
     
     def safeGet(self, bs, selector):
@@ -56,16 +61,16 @@ class Crawler:
         respondTimeList = self.safeGet(bs, website.respondTimeTag)
         proxyIps = []
         for ip, port, location, respondTime in zip(ipList, portList, locationList, respondTimeList):
-            proxyIp = ProxyIP(ip.get_text(), port.get_text(), location.get_text(), respondTime.get_text())
+            proxyIp = ProxyIP(ip.get_text().strip(), port.get_text().strip(), location.get_text().strip(), respondTime.get_text().strip())
             proxyIps.append(proxyIp)
         return proxyIps
         
-    def crawl(self, website, writer, userAgent):
-        bs = self.getPage(website.url, userAgent)
+    def crawl(self, url, website, writer, userAgent):
+        bs = self.getPage(url, userAgent, website.encoding)
         proxyIps = self.parse(bs, website)
         for proxyIp in proxyIps:
+            self.crawlCount += 1
             writer.writerow([proxyIp.ip, proxyIp.port, proxyIp.location, proxyIp.respondTime])
-   
     
 userAgents = [
         'Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/39.0.2171.95 Safari/537.36 OPR/26.0.1656.60',
@@ -80,19 +85,22 @@ outFile = open('ipData.csv', 'w', newline = '')
 writer = csv.writer(outFile)
 crawler = Crawler()
 websiteDatas = [
-        ['https://www.kuaidaili.com/free/inha/{0}/'.format(page),'td[data-title="IP"]', 'td[data-title="PORT"]', 'td[data-title="位置"]', 'td[data-title="响应速度"]']
-        for page in range(1, CRAWLPAGELIMIT + 1)
+        ['https://www.kuaidaili.com/free/inha/{0}/', 'td[data-title="IP"]', 'td[data-title="PORT"]', 'td[data-title="位置"]', 'td[data-title="响应速度"]', '快代理', 'UTF-8'],
+        #['https://www.freeip.top/?page={0}', 'tr td:nth-child(1)', 'tr td:nth-child(2)', 'tr td:nth-child(5)', 'tr td:nth-child(8)', '代理库', 'UTF-8'],
+        ['http://www.ip3366.net/?stype=1&page={0}', 'tr td:nth-child(1)', 'tr td:nth-child(2)', 'tr td:nth-child(6)', 'tr td:nth-child(7)', '云代理', 'GBK']
 ]
 websites = []
 
 for websiteData in websiteDatas:
-    website = Website(websiteData[0], websiteData[1], websiteData[2], websiteData[3], websiteData[4])
+    website = Website(websiteData[0], websiteData[1], websiteData[2], websiteData[3], websiteData[4], websiteData[5], websiteData[6])
     websites.append(website)
     
-for website in websites:
-    print('Crawling in: {}'.format(website.url))
-    crawler.crawl(website, writer, userAgents[random.randint(0, len(userAgents) - 1)])
+for pageIndex in range(1, CRAWLPAGELIMIT):
+    for website in websites:
+        print('Crawling page{0} in website {1}'.format(pageIndex, website.name))
+        absoluteUrl = website.url.format(pageIndex)
+        crawler.crawl(absoluteUrl, website, writer, userAgents[random.randint(0, len(userAgents) - 1)])
     time.sleep(CRAWLTIMESPAN)
-print('Finished')
-    
+
+print('Finished,crawled {0} pages in total.'.format(crawler.crawlCount))
 outFile.close()
